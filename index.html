@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>身分證 / 存摺封面 線上列印工具</title>
+    <title>身分證 / 存摺封面 線上列印工具（含裁切線版）</title>
     <style>
         /* --- 網頁預覽樣式 --- */
         body { font-family: sans-serif; background: #f5f5f5; padding: 20px; text-align: center; }
@@ -21,7 +21,7 @@
         .options-group { margin: 15px 0; font-size: 14px; display: flex; justify-content: center; gap: 20px; background: #f8f9fa; padding: 10px; border-radius: 4px; }
         .options-group label { cursor: pointer; display: flex; align-items: center; gap: 5px; font-weight: bold; }
 
-        /* 畫布容器（模擬 A4 寬度） */
+        /* 畫布容器（模擬 A4） */
         #print-area {
             background: white;
             width: 210mm;
@@ -30,7 +30,7 @@
             padding: 20mm;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
             display: flex;
-            gap: 15mm;
+            gap: 20mm; /* 加大間距，給裁切線留空間 */
             justify-content: center;
             align-items: center;
             box-sizing: border-box;
@@ -50,27 +50,16 @@
             box-sizing: border-box; 
             background: #fafafa;
             cursor: pointer;
-            position: relative;
+            position: relative; /* 讓裁切線可以絕對定位 */
             transition: all 0.2s ease;
         }
 
         /* 1. 身分證尺寸樣式 (預設滿版 86x54) */
-        .mode-id {
-            width: 86mm;
-            height: 54mm;
-            padding: 0px;
-        }
-        /* 身分證補 3mm 邊 */
-        .mode-id.has-padding {
-            padding: 3mm;
-        }
+        .mode-id { width: 86mm; height: 54mm; padding: 0px; }
+        .mode-id.has-padding { padding: 3mm; }
 
         /* 2. 存摺封面尺寸樣式 (標準 150mm x 92mm) */
-        .mode-bank {
-            width: 150mm;
-            height: 92mm;
-            padding: 0px;
-        }
+        .mode-bank { width: 150mm; height: 92mm; padding: 0px; }
 
         .card-box img {
             width: 100%;
@@ -82,24 +71,58 @@
         .card-box input[type="file"] { display: none; }
         .placeholder { color: #888; font-size: 14px; text-align: center; pointer-events: none; padding: 10px; }
 
-        /* --- 🖨️ 列印專用樣式 --- */
+        /* --- 🖨️ 列印專用與裁切線樣式 --- */
         @media print {
             body { background: white; padding: 0; }
             .no-print { display: none !important; }
             #print-area {
                 box-shadow: none;
                 margin: 0;
-                padding: 0;
+                padding: 30mm 0; /* 給四周裁切線留出伸展空間 */
                 width: auto;
                 height: auto;
+                gap: 25mm !important; /* 確保兩個框分開，裁切線不重疊 */
             }
             .card-box {
-                border: none !important; 
+                border: none !important; /* 隱藏原本的預覽虛線 */
                 background: transparent !important;
             }
-            /* 確保列印時強制精準度 */
             .mode-id { width: 86mm !important; height: 54mm !important; }
             .mode-bank { width: 150mm !important; height: 92mm !important; }
+
+            /* 繪製 L 型十字裁切線 */
+            .card-box::before, .card-box::after {
+                content: "";
+                position: absolute;
+                width: 10mm;
+                height: 10mm;
+                border: 0.2mm solid #000; /* 線條粗細與顏色 */
+                pointer-events: none;
+            }
+
+            /* 左上與右下裁切線 */
+            .card-box::before {
+                top: -5mm;
+                left: -5mm;
+                border-right: none !important;
+                border-bottom: none !important;
+            }
+
+            /* 右上與左下裁切線 */
+            .card-box::after {
+                bottom: -5mm;
+                right: -5mm;
+                border-left: none !important;
+                border-top: none !important;
+            }
+            
+            /* 額外補足另外兩個角落（使用圖片容器來包覆輔助，這裡採用簡化但精準的對角延伸線法） */
+            /* 為了呈現完美的四角裁切，我們直接在外框上下功夫 */
+            .card-box {
+                /* 利用外陰影或線性漸變在列印時補足另外兩角，但最乾淨的做法是直接印出細微的外框邊界 */
+                outline: 0.1mm solid #bbb !important; /* 如果不想用十字線，淡淡的細外框是實務上最不容易出錯的裁切依據 */
+                outline-offset: 0px;
+            }
         }
     </style>
 </head>
@@ -131,7 +154,7 @@
         </div>
 
         <div class="options-group" id="bank-options" style="display: none; color: #555;">
-            💡 提示：存摺封面已自動鎖定標準尺寸 ($150 \times 92 \text{mm}$)，上傳後即可直接完美列印。
+            💡 提示：存摺封面已自動鎖定標準尺寸 ($150 \times 92 \text{mm}$)，列印時會附帶裁切線。
         </div>
     </div>
 
@@ -150,9 +173,8 @@
     </div>
 
     <script>
-        // 儲存上傳的圖片資料
         const imgData = { front: null, back: null };
-        let currentMode = 'id'; // 預設為身分證模式
+        let currentMode = 'id';
 
         function handleUpload(input, type) {
             const file = input.files[0];
@@ -176,16 +198,12 @@
             }
         }
 
-        // 核心切換邏輯：身分證 vs 存摺封面
         function switchMode(mode) {
             currentMode = mode;
-            
-            // 更新頁籤外觀
             const tabs = document.querySelectorAll('.tab-btn');
             tabs[0].classList.toggle('active', mode === 'id');
             tabs[1].classList.toggle('active', mode === 'bank');
 
-            // 顯示/隱藏 對應的設定選項
             document.getElementById('id-options').style.display = mode === 'id' ? 'flex' : 'none';
             document.getElementById('bank-options').style.display = mode === 'bank' ? 'block' : 'none';
 
@@ -194,16 +212,14 @@
             const textFront = document.getElementById('text-front');
 
             if (mode === 'id') {
-                // 回復身分證狀態
                 boxFront.className = 'card-box mode-id';
                 boxBack.className = 'card-box mode-id';
-                boxBack.style.display = 'flex'; // 顯示反面
+                boxBack.style.display = 'flex';
                 if(!imgData.front) textFront.innerText = "點選上傳【身分證正面】照片";
                 togglePadding(document.querySelector('input[name="photo-type"]:checked').value === 'cropped');
             } else {
-                // 切換至存摺封面狀態
                 boxFront.className = 'card-box mode-bank';
-                boxBack.style.display = 'none'; // 隱藏反面（存摺只需要一頁）
+                boxBack.style.display = 'none';
                 if(!imgData.front) textFront.innerText = "點選上傳【存摺封面】照片";
             }
         }
@@ -214,7 +230,7 @@
         }
 
         function togglePadding(shouldAddPadding) {
-            if (currentMode !== 'id') return; // 只有身分證模式需要控制補邊
+            if (currentMode !== 'id') return;
             const boxes = document.querySelectorAll('.card-box');
             boxes.forEach(box => {
                 if (shouldAddPadding) {
